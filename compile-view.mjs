@@ -85,6 +85,8 @@ let body = js.outputText;
 for (const [ start, end, text ] of edits.sort((a, b) => b[0] - a[0]))
 	body = body.slice(0, start) + text + body.slice(end);
 body = body.replace(/^\s*(['"])use strict\1;?\s*/, '').replace(/^\s+/, '');
+// The transpiler indents with 4 spaces; LuCI's code uses tabs.
+body = body.replace(/^(?: {4})+/gm, m => '\t'.repeat(m.length / 4));
 
 const banner = `// Generated from ${path.basename(input)} by luci-types compile-view.mjs; edit the .ts file.\n`;
 fs.mkdirSync(path.dirname(output), { recursive: true });
