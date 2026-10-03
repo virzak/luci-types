@@ -1,10 +1,18 @@
 {
 	"name": "luci-types",
+	"version": "0.1.0",
+	"description": "TypeScript declarations for OpenWrt LuCI, generated from luci-base JSDoc, and a compiler for TypeScript views",
 	"private": true,
 	"type": "module",
+	"bin": {
+		"luci-compile-view": "./compile-view.mjs"
+	},
 	"scripts": {
 		"build": "node build.mjs",
-		"test": "tsc -p test"
+		"test": "tsc -p test && tsc -p test/view && node compile-view.mjs test/view/sample.ts build/sample.js"
+	},
+	"peerDependencies": {
+		"typescript": ">=5.5"
 	},
 	"devDependencies": {
 		"typescript": "5.9.3"

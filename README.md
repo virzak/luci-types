@@ -4,12 +4,56 @@ TypeScript declarations for OpenWrt LuCI's client-side JavaScript API (`L`, `for
 
 This is a prototype for proposing generated types to LuCI upstream.
 
-## Usage
+## Writing a view in TypeScript
+
+Ready-made declarations are in `types/<LuCI branch>/` (`LUCI_SOURCE` there names the LuCI commit), so a project needs no LuCI checkout. Add this repo as a dev dependency and map `luci/*` onto the branch your router runs:
+
+```
+pnpm add -D typescript github:virzak/luci-types
+```
+
+```json
+{
+	"compilerOptions": {
+		"strict": true, "noEmit": true, "target": "es2020", "module": "esnext", "moduleResolution": "bundler",
+		"lib": ["es2020", "dom", "dom.iterable"],
+		"paths": { "luci/*": ["./node_modules/luci-types/types/openwrt-25.12/*"] }
+	},
+	"files": [
+		"view/example.ts",
+		"node_modules/luci-types/types/openwrt-25.12/globals.d.ts",
+		"node_modules/luci-types/types/openwrt-25.12/namespace.d.ts"
+	]
+}
+```
+
+The view imports LuCI modules from `luci/<module>` and default-exports its class:
+
+```ts
+import view from 'luci/view';
+import form from 'luci/form';
+
+export default view.extend({
+	render() {
+		const m = new form.JSONMap({ settings: {} }, _('Example'));
+		return m.render();
+	}
+});
+```
+
+Type-check it with `tsc`, then compile it into the module format LuCI loads (`'require form';` lines and a top-level `return`) and install the `.js` as usual:
+
+```
+npx tsc
+npx luci-compile-view view/example.ts htdocs/luci-static/resources/view/example.js
+```
+
+## Generating the declarations
 
 ```
 pnpm install
-node build.mjs <path to a luci checkout>   # declarations land in build/types
-pnpm test                                  # strict type checks in test/probe.ts
+node build.mjs <luci checkout> [types/<branch>]   # declarations land in build/types, or the given folder
+pnpm test                                         # strict type checks in test/probe.ts
 ```
 
 ## How it works
@@ -31,4 +75,3 @@ The only hand-written declarations are in `hand/`: the generic signature of LuCI
 
 - Strict mode: the generated declarations type-check with `skipLibCheck: false`, and `test/probe.ts` checks that typed calls succeed and wrong ones fail.
 - Covered: the luci-base core modules and `tools/*`. Application-specific modules (`luci-app-*`, `protocol/*`) are not included yet.
-- Not yet solved: how a TypeScript view is compiled back into LuCI's module format (`'require'` lines and a top-level `return`).

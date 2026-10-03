@@ -1,7 +1,7 @@
 // Generate TypeScript declarations for LuCI's client-side API from the JSDoc
 // already in luci-base, without changing LuCI.
 //
-//   node build.mjs <path to a luci checkout>
+//   node build.mjs <path to a luci checkout> [publish dir, e.g. types/openwrt-25.12]
 //
 // 1. Each module is rewritten as an ES module, mirroring what LuCI's loader
 //    (LuCI.require in luci.js) does at runtime:
@@ -19,9 +19,9 @@ import { execFileSync } from 'node:child_process';
 import ts from 'typescript';
 import fixes from './jsdoc-fixes.mjs';
 
-const luci = process.argv[2];
+const [ , , luci, publish ] = process.argv;
 if (!luci) {
-	console.error('usage: node build.mjs <luci checkout>');
+	console.error('usage: node build.mjs <luci checkout> [publish dir, e.g. types/openwrt-25.12]');
 	process.exit(2);
 }
 
@@ -261,4 +261,15 @@ execFileSync(process.execPath, [ path.join(root, 'node_modules/typescript/bin/ts
 for (const f of [ ...fs.readdirSync(path.join(root, 'hand')), 'namespace.d.ts' ])
 	fs.copyFileSync(path.join(mod, f), path.join(out, f));
 
-console.log(`${lends.length} documented classes; declarations in ${path.relative(root, out)}`);
+if (publish) {
+	const dest = path.resolve(root, publish);
+	fs.rmSync(dest, { recursive: true, force: true });
+	fs.cpSync(out, dest, { recursive: true });
+	// Which LuCI these describe, as `git describe` and commit of the checkout.
+	const git = args => execFileSync('git', [ '-C', luci, ...args ], { encoding: 'utf8' }).trim();
+	fs.writeFileSync(path.join(dest, 'LUCI_SOURCE'),
+		`${git([ 'rev-parse', 'HEAD' ])}
+${git([ 'log', '-1', '--format=%cs %s' ])}
+`);
+}
+console.log(`${lends.length} documented classes; declarations in ${path.relative(root, publish ? path.resolve(root, publish) : out)}`);
