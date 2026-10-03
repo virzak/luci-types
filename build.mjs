@@ -16,6 +16,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import ts from 'typescript';
+import fixes from './jsdoc-fixes.mjs';
 
 const luci = process.argv[2];
 if (!luci) {
@@ -34,24 +36,116 @@ const FILES = [ 'luci', 'firewall', 'form', 'fs', 'network', 'rpc', 'uci', 'ui',
 const BUILTIN = { baseclass: 'Class', dom: 'DOM', poll: 'Poll', request: 'Request', view: 'View' };
 const CLASS_TYPE = "import('./classtypes').LuCIClass<import('./classtypes').BaseInstance>";
 
+// Two sources of circular types (TS7022, collapsing a class to `any`) in luci.js:
+// - The other classes call LuCI.prototype.x() and Request.x() while LuCI's and
+//   Request's JSDoc return those classes. Where code accesses a property on
+//   them, read an untyped stand-in instead (a cast would still evaluate the real
+//   type); methods keep their JSDoc types.
+// - A JSDoc name tsc cannot resolve as a type, like {LuCI.x.Y}, falls back to
+//   the value `LuCI`. So the value is renamed __LuCI (and exported as LuCI); an
+//   unresolved name then fails visibly instead of silently looping.
+// The output is only used for tsc, never run.
+function breakCycles(src, names) {
+	const sf = ts.createSourceFile('luci.js', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+	const at = [];
+	const visit = n => {
+		if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression) && names.includes(n.expression.text))
+			return at.push([ n.expression.getStart(sf), n.expression.end, `__untyped_${n.expression.text}` ]);
+		if (ts.isIdentifier(n) && n.text == 'LuCI' && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name == n))
+			at.push([ n.getStart(sf), n.end, '__LuCI' ]);
+		ts.forEachChild(n, visit);
+	};
+	visit(sf);
+	for (const [ start, end, repl ] of at.sort((a, b) => b[0] - a[0]))
+		src = `${src.slice(0, start)}${repl}${src.slice(end)}`;
+	return names.map(n => `/** @type {any} */ let __untyped_${n};\n`).join('') + src;
+}
+
 fs.rmSync(path.join(root, 'build'), { recursive: true, force: true });
 fs.mkdirSync(path.join(mod, 'tools'), { recursive: true });
 
-// [qualified name, module, exported variable, 'class' | 'instance']
+// [qualified name, module, exported variable, 'class' | 'instance' | 'type']
 const lends = [];
+// qualified class name -> { member: TypeScript type } from @member blocks
+const members = {};
+
+// JSDoc type expression -> TypeScript, for the forms @member blocks use.
+const jsdocType = t => t.split('|').map(p => p.trim()).map(p =>
+	p == '*' ? 'any' : /^function(\(\))?$/.test(p) ? '((...args: any[]) => any)' : p).join(' | ');
 const LENDS = /^\t?(?:const|let) (\w+) = [\w.]+\.(extend|singleton)\(\/\*\* @lends ([\w.]+)\.prototype \*\//;
 
 for (const name of FILES) {
 	let src = fs.readFileSync(path.join(resources, `${name}.js`), 'utf8').replace(/\r/g, '');
+
+	for (const fix of fixes.filter(f => f.file == name)) {
+		if (!fix.find.test(src))
+			console.warn(`jsdoc-fixes: no longer matches in ${name}.js (fixed upstream?): ${fix.why}`);
+		fix.find.lastIndex = 0;
+		src = src.replace(fix.find, fix.replace);
+	}
 	const up = '../'.repeat(name.split('/').length - 1) || './';
 	const exported = [];
 
-	for (const line of src.split('\n')) {
-		const m = LENDS.exec(line);
+	const srcLines = src.split('\n');
+	srcLines.forEach((line, i) => {
+		// Classes without @lends (LuCI.response) still name themselves in __name__.
+		const m = LENDS.exec(line) ?? (() => {
+			const c = /^\t?(?:const|let) (\w+) = [\w.]+\.(extend|singleton)\(\{$/.exec(line);
+			const n = c && /^\s+__name__: '(LuCI[\w.]*)',$/.exec(srcLines[i + 1] ?? '');
+			return n && [ line, c[1], c[2], n[1] ];
+		})();
 		if (m) {
 			lends.push([ m[3], name, m[1], m[2] == 'singleton' ? 'instance' : 'class' ]);
 			exported.push(m[1]);
 		}
+	});
+
+	// A dotted @typedef/@callback name (LuCI.request.interceptorFn) makes tsc
+	// declare a local `namespace LuCI`, which merges with `const LuCI` and makes
+	// the class part of its own type. Give these flat names (tsc exports module
+	// typedefs) and map the documented names in namespace.d.ts. JSDoc's `~`
+	// inner-member separator becomes `.` everywhere so tsc can parse it.
+	src = src.replace(/(LuCI(?:\.\w+)*)~(\w+)/g, '$1.$2')
+		.replace(/@(typedef|callback)(\s+\{[^}]*\})?\s+(LuCI(?:\.\w+)+)/g, (m, tag, type, qname) => {
+			const flat = qname.replace(/\./g, '_');
+			lends.push([ qname, name, flat, 'type' ]);
+			return `@${tag}${type ?? ''} ${flat}`;
+		});
+
+	// tsc only exports typedefs declared at module level, and LuCI writes many
+	// inside class literals. They are pure comments, so move them to the end.
+	const typedefs = [];
+	src = src.replace(/[ \t]*\/\*\*(?:(?!\*\/)[\s\S])*?@(?:typedef|callback)\b[\s\S]*?\*\/\n?/g, m => {
+		typedefs.push(m.replace(/^[ \t]+/gm, ''));
+		return '';
+	});
+	src += `\n${typedefs.join('\n')}`;
+
+	// Properties documented only in JSDoc (`@member addremove` + `@type {boolean}`
+	// + `@memberof LuCI.form.TypedSection.prototype`), set by views at runtime.
+	for (const block of src.match(/\/\*\*[\s\S]*?\*\//g) ?? []) {
+		const member = /@member\s+(?:\{([^}]*)\}\s+)?(\w+)/.exec(block);
+		const owner = /@memberof\s+(LuCI(?:\.\w+)*)\.prototype\b/.exec(block);
+		if (member && owner)
+			(members[owner[1]] ??= {})[member[2]] = jsdocType(member[1] ?? /@type\s+\{([^}]*)\}/.exec(block)?.[1] ?? '*');
+	}
+
+	// Declare them in the class literal, typed, so instances carry them. They go
+	// first, so a real definition later in the literal takes precedence.
+	for (const [ qname, file, variable, kind ] of lends) {
+		if (file != name || kind == 'type' || !members[qname])
+			continue;
+		const decl = Object.entries(members[qname]).map(([ k, t ]) => `\t\t/** @type {${t}} */ ${k}: undefined,\n`).join('');
+		src = src.replace(new RegExp(`^(\\t?(?:const|let) ${variable} = [\\w.]+\\.(?:extend|singleton)\\((?:/\\*\\* @lends [\\w.]+ \\*/ )?\\{\\n)`, 'm'), `$1${decl}`);
+	}
+
+	// Plain-named typedefs placed with @memberof (RequestOptions in
+	// LuCI.request) are documented as LuCI.request.RequestOptions; map those too.
+	for (const block of src.match(/\/\*\*[\s\S]*?\*\//g) ?? []) {
+		const def = /@(?:typedef|callback)(?:\s+\{[^}]*\})?\s+(\w+)\s/.exec(block);
+		const owner = /@memberof\s+(LuCI(?:\.\w+)*)/.exec(block);
+		if (def && owner)
+			lends.push([ `${owner[1]}.${def[1]}`, name, def[1], 'type' ]);
 	}
 
 	if (name == 'luci') {
@@ -67,7 +161,7 @@ for (const name of FILES) {
 		lines[end] = '\t})));';
 
 		const builtins = Object.entries(BUILTIN).map(([ k, v ]) => `${v} as ${k}`);
-		src = `${lines.join('\n')}\nexport { ${builtins.join(', ')}, ${[ ...new Set(exported) ].join(', ')} };\n`;
+		src = `${breakCycles(lines.join('\n'), [ 'LuCI', 'Request' ])}\nexport { ${builtins.join(', ')}, ${[ ...new Set(exported) ].map(e => e == 'LuCI' ? '__LuCI as LuCI' : e).join(', ')} };\n`;
 
 		for (const [ k ] of Object.entries(BUILTIN))
 			fs.writeFileSync(path.join(mod, `${k}.js`), `import { ${k} } from './luci.js';\nexport default ${k};\n`);
@@ -100,16 +194,22 @@ for (const [ qname, file, variable, kind ] of lends) {
 	let node = tree;
 	for (const p of parts.slice(1, -1))
 		node = (node[p] ??= {});
-	(node['.types'] ??= []).push([ parts.at(-1), file, variable, kind ]);
+	if (parts.length > 1)
+		(node['.types'] ??= []).push([ parts.at(-1), file, variable, kind, qname ]);
 }
 
 const imports = [ "import type { Type } from './classtypes.js';",
-	...[ ...new Set(lends.map(l => l[1])) ].map(f => `import type * as ${f.replace(/\W/g, '_')} from './${f}.js';`) ];
+	...[ ...new Set(lends.map(l => l[1])) ].map(f => `import type * as $${f.replace(/\W/g, '_')} from './${f}.js';`) ];
 const emit = (node, indent) => {
 	let s = '';
-	for (const [ name, file, variable, kind ] of node['.types'] ?? []) {
-		const t = `typeof ${file.replace(/\W/g, '_')}.${variable}`;
-		s += `${indent}interface ${name} extends ${kind == 'class' ? `InstanceType<${t}>` : `Type<${t}>`} {}\n`;
+	for (const [ name, file, variable, kind, qname ] of node['.types'] ?? []) {
+		// `$` prefix: a bare alias like `fs` would be shadowed by LuCI.fs here.
+		const mod = `$${file.replace(/\W/g, '_')}`;
+		const t = `typeof ${mod}.${variable}`;
+		if (kind == 'type')
+			s += `${indent}type ${name} = ${mod}.${variable};\n`;
+		else
+			s += `${indent}interface ${name} extends ${kind == 'class' ? `InstanceType<${t}>` : `Type<${t}>`} {}\n`;
 	}
 	for (const [ k, child ] of Object.entries(node))
 		if (k != '.types')

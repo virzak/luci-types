@@ -1,0 +1,10 @@
+{
+	"extends": "./tsconfig.build.json",
+	"compilerOptions": {
+		"checkJs": true,
+		"noImplicitAny": true,
+		"noEmit": true,
+		"declaration": false,
+		"emitDeclarationOnly": false
+	}
+}
