@@ -1,0 +1,13 @@
+{
+	"compilerOptions": {
+		"noEmit": true,
+		"strict": true,
+		"target": "es2023",
+		"module": "es2022",
+		"moduleResolution": "bundler",
+		"lib": ["es2023", "dom", "dom.iterable"],
+		"skipLibCheck": false,
+		"types": []
+	},
+	"files": ["probe.ts", "../build/types/globals.d.ts", "../build/types/namespace.d.ts"]
+}

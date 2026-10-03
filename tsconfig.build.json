@@ -1,0 +1,16 @@
+{
+	"compilerOptions": {
+		"allowJs": true,
+		"checkJs": false,
+		"declaration": true,
+		"emitDeclarationOnly": true,
+		"outDir": "build/types",
+		"rootDir": "build/mod",
+		"target": "es2023",
+		"module": "es2022",
+		"moduleResolution": "bundler",
+		"lib": ["es2023", "dom", "dom.iterable"],
+		"skipLibCheck": true
+	},
+	"include": ["build/mod"]
+}

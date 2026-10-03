@@ -1,0 +1,12 @@
+{
+	"name": "luci-types",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "node build.mjs",
+		"test": "tsc -p test"
+	},
+	"devDependencies": {
+		"typescript": "5.9.3"
+	}
+}
