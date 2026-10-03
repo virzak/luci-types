@@ -28,3 +28,14 @@ fs.read(42);
 fs.write('/x', 'y', 'rw');
 // @ts-expect-error no such method
 m.nosuchmethod();
+
+// taboption() returns the given class's instance, with its documented members.
+s.tab('general', 'General');
+const t = s.taboption('general', form.Value, 'y', 'Y');
+t.placeholder = 'hint';
+t.value('a', 'A');
+
+// Fields assigned in __init__ are typed from their @param.
+export const optionMap: LuCI.form.Map = o.map;
+// addNotification() takes a null title, as LuCI itself calls it.
+ui.addNotification(null, 'text');

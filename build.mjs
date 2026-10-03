@@ -130,12 +130,42 @@ for (const name of FILES) {
 			(members[owner[1]] ??= {})[member[2]] = jsdocType(member[1] ?? /@type\s+\{([^}]*)\}/.exec(block)?.[1] ?? '*');
 	}
 
-	// Declare them in the class literal, typed, so instances carry them. They go
-	// first, so a real definition later in the literal takes precedence.
+	// Fields assigned in __init__ (`this.map = map`): tsc does not infer fields
+	// from assignments inside an object-literal method. Type a field from its
+	// @param when it is assigned a parameter as-is, else as any.
+	const sf = ts.createSourceFile(`${name}.js`, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+	const fields = {};
+	ts.forEachChild(sf, function visit(n) {
+		if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && ts.isCallExpression(n.initializer)) {
+			const init = n.initializer.arguments.find(ts.isObjectLiteralExpression)?.properties
+				.find(p => ts.isMethodDeclaration(p) && p.name.getText(sf) == '__init__');
+			if (init) {
+				const params = Object.fromEntries(ts.getJSDocTags(init).filter(ts.isJSDocParameterTag)
+					.map(t => [ t.name.getText(sf), t.typeExpression?.type.getText(sf) ]));
+				const own = new Set(n.initializer.arguments.find(ts.isObjectLiteralExpression).properties.map(p => p.name?.getText(sf)));
+				ts.forEachChild(init.body, function assign(a) {
+					if (ts.isBinaryExpression(a) && a.operatorToken.kind == ts.SyntaxKind.EqualsToken &&
+					    ts.isPropertyAccessExpression(a.left) && a.left.expression.kind == ts.SyntaxKind.ThisKeyword &&
+					    !own.has(a.left.name.text)) {
+						const p = ts.isIdentifier(a.right) && params[a.right.text];
+						((fields[n.name.text] ??= {})[a.left.name.text] ??= p || 'any');
+					}
+					if (!ts.isFunctionLike(a))
+						ts.forEachChild(a, assign);
+				});
+			}
+		}
+		ts.forEachChild(n, visit);
+	});
+
+	// Declare documented members and __init__ fields in the class literal,
+	// typed, so instances carry them. They go first, so a real definition later
+	// in the literal takes precedence.
 	for (const [ qname, file, variable, kind ] of lends) {
-		if (file != name || kind == 'type' || !members[qname])
+		if (file != name || kind == 'type' || (!members[qname] && !fields[variable]))
 			continue;
-		const decl = Object.entries(members[qname]).map(([ k, t ]) => `\t\t/** @type {${t}} */ ${k}: undefined,\n`).join('');
+		const all = { ...fields[variable], ...members[qname] };
+		const decl = Object.entries(all).map(([ k, t ]) => `\t\t/** @type {${t}} */ ${k}: undefined,\n`).join('');
 		src = src.replace(new RegExp(`^(\\t?(?:const|let) ${variable} = [\\w.]+\\.(?:extend|singleton)\\((?:/\\*\\* @lends [\\w.]+ \\*/ )?\\{\\n)`, 'm'), `$1${decl}`);
 	}
 
