@@ -29,8 +29,12 @@ const root = path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, 
 const resources = path.join(luci, 'modules/luci-base/htdocs/luci-static/resources');
 const mod = path.join(root, 'build/mod');
 const out = path.join(root, 'build/types');
-const FILES = [ 'luci', 'firewall', 'form', 'fs', 'network', 'rpc', 'uci', 'ui', 'validation',
-	'tools/password', 'tools/prng', 'tools/views', 'tools/widgets' ];
+// Every module in luci-base, top level and tools/ (the set differs between LuCI
+// branches). cbi.js and xhr.js are legacy page scripts, not modules.
+const LEGACY = [ 'cbi', 'xhr' ];
+const FILES = [ '', 'tools/' ].flatMap(dir =>
+	fs.readdirSync(path.join(resources, dir)).filter(f => f.endsWith('.js'))
+		.map(f => dir + f.slice(0, -3)).filter(f => !LEGACY.includes(f)));
 
 // require() names that luci.js provides itself, and its variable for each.
 const BUILTIN = { baseclass: 'Class', dom: 'DOM', poll: 'Poll', request: 'Request', view: 'View' };
