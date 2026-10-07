@@ -83,7 +83,7 @@ for (const name of FILES) {
 
 	for (const fix of fixes.filter(f => f.file == name)) {
 		if (!fix.find.test(src))
-			console.warn(`jsdoc-fixes: no longer matches in ${name}.js (fixed upstream?): ${fix.why}`);
+			console.warn(`jsdoc-fixes: does not match ${name}.js (fixed upstream, or another branch's wording): ${fix.why}`);
 		fix.find.lastIndex = 0;
 		src = src.replace(fix.find, fix.replace);
 	}

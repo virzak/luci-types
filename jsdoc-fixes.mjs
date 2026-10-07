@@ -1,6 +1,8 @@
 // Corrections to luci-base JSDoc, applied before generating declarations.
 // Each one is a bug in LuCI's documentation and a candidate for an upstream
-// fix; once LuCI carries it, the entry here stops matching and can go.
+// fix; once LuCI carries it, the entry here stops matching and can go. Some
+// match only one LuCI branch: the option() and taboption() pairs below are
+// openwrt-25.12's wording and master's (since openwrt/luci#9100).
 //
 // { file, find: RegExp, replace: string, why }
 
@@ -36,5 +38,18 @@ export default [
 		find: /@param \{LuCI\.form\.AbstractValue\} optionclass[\s\S]*?\{@link LuCI\.form\.AbstractSection AbstractSection\}\.\n\s*\*\n\s*\* @param \{\.\.\.\*\} args \(classargs\)([\s\S]*?)@returns \{LuCI\.form\.AbstractValue\}/,
 		replace: '@template T\n\t * @param {[new (...args: any[]) => T, ...any[]]} args\n\t * The option class to use (the class itself, not an instance, derived from\n\t * {@link LuCI.form.AbstractValue AbstractValue}), followed by the\n\t * arguments (classargs) passed as-is to its constructor.$1@returns {T}',
 		why: 'taboption(tabName, ...args) documents an `optionclass` parameter its signature does not have (the class is the first rest argument), says it must derive from AbstractSection instead of AbstractValue, and returns an instance of the given class.'
+	},
+	{
+		// master since #9100: cbiClass is named, but typed as an instance.
+		file: 'form',
+		find: /@param \{LuCI\.form\.AbstractValue\} cbiClass((?:(?!\/\*\*)[\s\S])*?)@returns \{LuCI\.form\.AbstractValue\}((?:(?!\/\*\*)[\s\S])*?\*\/\s*option\()/,
+		replace: '@template T\n\t * @param {function(new:T, ...*)} cbiClass$1@returns {T}$2',
+		why: 'option() takes a class, not an instance, and returns an instance of that class (openwrt/luci#9116).'
+	},
+	{
+		file: 'form',
+		find: /@param \{LuCI\.form\.AbstractValue\} cbiClass((?:(?!\/\*\*)[\s\S])*?)@returns \{LuCI\.form\.AbstractValue\}((?:(?!\/\*\*)[\s\S])*?\*\/\s*taboption\()/,
+		replace: '@template T\n\t * @param {function(new:T, ...*)} cbiClass$1@returns {T}$2',
+		why: 'taboption() takes a class, not an instance, and returns an instance of that class (openwrt/luci#9116).'
 	}
 ];
