@@ -6,7 +6,7 @@ This is a prototype for proposing generated types to LuCI upstream.
 
 ## Writing a view in TypeScript
 
-Ready-made declarations are in `types/<LuCI branch>/` (`LUCI_SOURCE` there names the LuCI commit), so a project needs no LuCI checkout. Add this repo as a dev dependency and map `luci/*` onto the branch your router runs:
+Ready-made declarations are in `types/<LuCI branch>/` (`LUCI_SOURCE` there names the LuCI commit), so a project needs no LuCI checkout. Only `types/openwrt-25.12/` is published; for another branch, generate them (below). Add this repo as a dev dependency and map `luci/*` onto the branch your router runs:
 
 ```
 pnpm add -D typescript github:virzak/luci-types
@@ -69,7 +69,9 @@ The only hand-written declarations are in `hand/`: the generic signature of LuCI
 
 ## JSDoc fixes
 
-`jsdoc-fixes.mjs` corrects LuCI's JSDoc where it is wrong, before generating. Each entry is a documentation bug and a candidate for an upstream fix: for example `option()` and `taboption()` document parameters their signatures do not have, and `XMLHTTPRequest` is a typo. When LuCI carries a fix, its entry stops matching and the build says so.
+`jsdoc-fixes.mjs` corrects LuCI's JSDoc where it is wrong, before generating. Each entry is a documentation bug and a candidate for an upstream fix: for example `option()` and `taboption()` document parameters their signatures do not have, and `XMLHTTPRequest` is a typo. When LuCI carries a fix, its entry stops matching and the build says so, as it does for entries written for another branch's wording.
+
+Most of these are fixed in LuCI master ([#9100](https://github.com/openwrt/luci/pull/9100)). What master still needs is the generic typing of `section()`, `option()` and `taboption()` (they return an instance of the class passed in), proposed upstream in [#9116](https://github.com/openwrt/luci/pull/9116); with it, master needs no corrections at all.
 
 ## Status
 
